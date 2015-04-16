@@ -77,21 +77,25 @@ def reaction2RI(reaction_list, metabolite_list, fixed_conc=0.1):
     '''
     keq = reaction2Keq(reaction_list)
     
+    print metabolite_list
     sparse = map(lambda x: KeggReaction.parse_formula(x).sparse, reaction_list)
 
     # map concentrations to reactions
-    map(lambda x: set(x.keys())-CIDS, sparse)
+    N_u = np.array(map(lambda x: len(set(x.keys())-set(metabolite_list.keys())), sparse))
+
+    concs = [{k:metabolite_list[k] if k in metabolite_list.keys() 
+                                    else fixed_conc 
+                                    for k in l.iterkeys()} 
+                                    for l in sparse] #new array with concentrations instead of stoichiometric values
     
-    N_P = np.zeros(len(sparse))
-    N_S = np.zeros(len(sparse))    
-    for i,s in enumerate(sparse):   
-        N_P[i] =  sum([v for v in s.itervalues() if v>0])
-        N_S[i] = -sum([v for v in s.itervalues() if v<0])
-    N = N_P + N_S
-    Q_2prime = fixed_conc**(N_P-N_S)
+    Q =  np.zeros(len(concs))
+    for i, (c, s) in enumerate(zip(concs, sparse)):
+        Q[i] = np.prod(np.array([v**s[k] for k, v in c.iteritems()]))
+    # ToDo: if all concentration are known, take only Keq/Q
+    RI = ( keq/Q )**( 2.0/N_u )
+    return RI,sparse, Q, N_u
     
-    RI = ( keq*Q_2prime )**( 2.0/N )
-    return RI,sparse
+    
         
 if __name__ == "__main__":
     # Read reaction list
@@ -103,19 +107,19 @@ if __name__ == "__main__":
         names.append(row[0].replace("'", ''))
         reaction_list.append(row[1])
         
-    # ToDo: Read metabolite lists
+    # Read metabolite lists
     metabolite_list = pd.read_csv('metabolomics4.csv').set_index('Unnamed: 0')
     # for condition in ['Glc', 'Prop', 'Glu']:    
     metabolite_list = metabolite_list.loc['Glc'] * 1e-6 # conversion from uM to M
-    
+    # ToDo: remove NaNs
         
     # Calculate properties    
     dG0 = reaction2dG0(reaction_list)
     Keq = reaction2Keq(reaction_list)
-    RI, sparse = reaction2RI(reaction_list,metabolite_list) #ToDo: modify such that it als takes concentrations
+    RI, sparse, Q,  N_u = reaction2RI(reaction_list,metabolite_list) 
     reversibility_index = dict(zip(names, RI))
 
-    f = open('reversibility_index.csv','w')
+    f = open('reversibility_index_concs.csv','w')
     w = csv.writer(f)
     for k,v in reversibility_index.iteritems():
         w.writerow([k, v]) #ksdjfk
